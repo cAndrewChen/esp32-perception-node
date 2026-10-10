@@ -7,18 +7,32 @@
       "type": "board-esp32-s3-devkitc-1",
       "id": "esp",
       "attrs": {}
+    },
+    {
+      "type": "wokwi-mpu6050",
+      "id": "imu",
+      "top": -120,
+      "left": 120,
+      "attrs": {}
+    },
+    {
+      "type": "wokwi-servo",
+      "id": "servo",
+      "top": -130,
+      "left": -150,
+      "attrs": {}
     }
   ],
   "connections": [
-    [
-      "esp:TX",
-      "$serialMonitor:RX",
-      ""
-    ],
-    [
-      "esp:RX",
-      "$serialMonitor:TX",
-      ""
-    ]
-  ]
+    [ "esp:TX", "$serialMonitor:RX", "" ],
+    [ "esp:RX", "$serialMonitor:TX", "" ],
+    [ "esp:3V3", "imu:VCC", "red", [] ],
+    [ "esp:GND.1", "imu:GND", "black", [] ],
+    [ "esp:8", "imu:SDA", "green", [] ],
+    [ "esp:9", "imu:SCL", "blue", [] ],
+    [ "esp:5V", "servo:V+", "red", [] ],
+    [ "esp:GND.2", "servo:GND", "black", [] ],
+    [ "esp:4", "servo:PWM", "orange", [] ]
+  ],
+  "dependencies": {}
 }
