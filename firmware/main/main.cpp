@@ -16,12 +16,13 @@
 
 static const char *TAG = "main";
 
-// Camera runs at about 30 fps, control at 50 Hz (CONTROL_PERIOD_MS).
+// Camera period for about 30 fps; control runs at 50 Hz (CONTROL_PERIOD_MS). In Wokwi a frame takes about
+// 70 ms to process, so the real rate is about 14 fps and each frame is timestamped when it is captured.
 constexpr int CAMERA_PERIOD_MS = 33;
 
 // PID: error is dx in pixels, output is the servo angle in degrees.
-constexpr float PID_KP = 0.25f;
-constexpr float PID_KI = 3.0f;
+constexpr float PID_KP = 0.3f;
+constexpr float PID_KI = 1.0f;
 constexpr float PID_KD = 0.0f;
 // Longest frame-to-frame gap the PID will integrate over. A bigger step (e.g. after the object was lost)
 // makes the integral term overshoot.
@@ -85,14 +86,12 @@ static void perception_task(void *)
         const ObjectPos obj = world_object((now - t0) * 1e-6f);
 
         world_render(s_frame, cam_deg, obj);
-        const int64_t render_done = esp_timer_get_time();
         FrameResult fr = vision_find(s_frame);
         fr.t_us = now;
         xQueueOverwrite(s_frame_q, &fr);
         portENTER_CRITICAL(&s_obj_mux);
         s_obj_shared = {fr.found, fr.cx - FRAME_CX, fr.cy - FRAME_CY};
         portEXIT_CRITICAL(&s_obj_mux);
-        const int64_t render_us = render_done - now;
         const int64_t frame_us = esp_timer_get_time() - now;
 
         const float true_err_px = PX_PER_DEG * (obj.x_deg - cam_deg);
@@ -105,11 +104,20 @@ static void perception_task(void *)
         }
         frames++;
 
+        // Sanity check kept from debugging: the vision result must agree with the world's own geometry.
+        // A disagreement means the frame was not drawn at the camera angle we believe (see world.cpp).
+        static int64_t last_mismatch_us = 0;
+        if (fr.found && fabsf((fr.cx - FRAME_CX) - true_err_px) > 1.0f && now - last_mismatch_us > 1000000) {
+            last_mismatch_us = now;
+            ESP_LOGW(TAG, "vision disagrees with the world: world=%.1f px, vision=%.1f px (wanted=%.1f cam=%.1f deg)",
+                     true_err_px, fr.cx - FRAME_CX, obj.x_deg, cam_deg);
+        }
+
         if (frames % 30 == 0) {
             const float held_s = in_tol_since_us < 0 ? 0.0f : (now - in_tol_since_us) * 1e-6f;
-            ESP_LOGI(TAG, "track: wanted=%.1f actual=%.1f deg, err=%.1f px, in-tol %.2f s, %s, %d%% of frames in tol, found=%d, frame %lld us (render %lld)",
+            ESP_LOGI(TAG, "track: wanted=%.1f actual=%.1f deg, err=%.1f px, in-tol %.2f s, %s, %d%% of frames in tol, found=%d, frame %lld us",
                      obj.x_deg, cam_deg, true_err_px, held_s, held_s >= TRACK_HOLD_S ? "LOCKED" : "not locked",
-                     100 * frames_in_tol / frames, fr.found, (long long)frame_us, (long long)render_us);
+                     100 * frames_in_tol / frames, fr.found, (long long)frame_us);
         }
         // If a frame took longer than the period, vTaskDelayUntil returns without blocking. Always
         // sleep at least one tick so the idle task can run and feed the watchdog.
@@ -204,7 +212,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(i2c_init());
     ESP_ERROR_CHECK(imu_init());
     ESP_ERROR_CHECK(telemetry_init());
-    if (TELEMETRY_ON_CONSOLE) esp_log_level_set("*", ESP_LOG_NONE);  // keep text out of the packet stream
+    if (TELEMETRY_ON_CONSOLE && TELEMETRY_SILENCE_LOGS) esp_log_level_set("*", ESP_LOG_NONE);  // keep text out of the packet stream
     ESP_ERROR_CHECK(servo_init());
     ESP_ERROR_CHECK(distance_start());
     imu_calibrate();

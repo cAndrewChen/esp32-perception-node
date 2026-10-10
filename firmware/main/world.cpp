@@ -34,9 +34,18 @@ ObjectPos world_object(float t_s)
     return {r * cosf(theta), r * sinf(theta) * SPIRAL_Y_SCALE};
 }
 
-void world_render(uint16_t *buf, float cam_deg, const ObjectPos &obj)
+// Kept out of line on purpose. Before this, about a third of frames were drawn as if the camera pointed at 0 deg
+// even though a nonzero angle was passed in. The cause is not proven: this loop takes a few ms, so other tasks
+// often preempt it, and a float held in a register across it is the likely thing that was lost. Doing the clear
+// in its own call forces cam_deg onto the stack. main.cpp checks for the symptom and logs a warning.
+static void __attribute__((noinline)) clear_frame(uint16_t *buf)
 {
     for (int i = 0; i < FRAME_W * FRAME_H; i++) buf[i] = BACKGROUND;
+}
+
+void world_render(uint16_t *buf, float cam_deg, const ObjectPos &obj)
+{
+    clear_frame(buf);
 
     const float px = FRAME_CX + PX_PER_DEG * (obj.x_deg - cam_deg);
     const float py = FRAME_CY + PX_PER_DEG * obj.y_deg;

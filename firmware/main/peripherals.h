@@ -24,6 +24,9 @@ esp_err_t imu_read_reg(uint8_t reg, uint8_t *buf, size_t len);
 // true: the packets go out of UART0, the console UART, which Wokwi can forward to the host over
 // RFC2217 (see wokwi.toml). Log text is switched off then, so only packets are on the line.
 constexpr bool TELEMETRY_ON_CONSOLE = true;
+// With telemetry on the console, false keeps the log text on the same UART. Lines and packets then
+// occasionally corrupt each other (the CRC rejects the damaged packets). true silences the logs for a clean stream.
+constexpr bool TELEMETRY_SILENCE_LOGS = false;
 constexpr int TELEMETRY_BAUD = 115200;
 esp_err_t telemetry_init();
 int telemetry_write(const uint8_t *data, size_t len);
