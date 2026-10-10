@@ -21,6 +21,13 @@
       "top": -130,
       "left": -150,
       "attrs": {}
+    },
+    {
+      "type": "wokwi-hc-sr04",
+      "id": "sonar",
+      "top": -230,
+      "left": 300,
+      "attrs": { "distance": "100" }
     }
   ],
   "connections": [
@@ -32,7 +39,11 @@
     [ "esp:9", "imu:SCL", "blue", [] ],
     [ "esp:5V", "servo:V+", "red", [] ],
     [ "esp:GND.2", "servo:GND", "black", [] ],
-    [ "esp:4", "servo:PWM", "orange", [] ]
+    [ "esp:4", "servo:PWM", "orange", [] ],
+    [ "esp:5V", "sonar:VCC", "red", [] ],
+    [ "esp:GND.1", "sonar:GND", "black", [] ],
+    [ "esp:5", "sonar:TRIG", "purple", [] ],
+    [ "esp:6", "sonar:ECHO", "gray", [] ]
   ],
   "dependencies": {}
 }

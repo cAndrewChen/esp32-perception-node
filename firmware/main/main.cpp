@@ -6,6 +6,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/queue.h"
 #include "freertos/task.h"
+#include "distance.h"
 #include "imu.h"
 #include "peripherals.h"
 #include "pid.h"
@@ -18,9 +19,12 @@ static const char *TAG = "main";
 constexpr int CAMERA_PERIOD_MS = 33;
 
 // PID: error is dx in pixels, output is the servo angle in degrees.
-constexpr float PID_KP = 0.1f;
-constexpr float PID_KI = 0.1f;
+constexpr float PID_KP = 0.25f;
+constexpr float PID_KI = 3.0f;
 constexpr float PID_KD = 0.0f;
+// Longest frame-to-frame gap the PID will integrate over. A bigger step (e.g. after the object was lost)
+// makes the integral term overshoot.
+constexpr float PID_MAX_DT_S = 0.15f;
 
 // Success: object within TRACK_TOL_PX of the crosshair for TRACK_HOLD_S seconds.
 constexpr float TRACK_TOL_PX = 20.0f;
@@ -127,7 +131,8 @@ static void control_task(void *)
 
         FrameResult fr;
         if (xQueueReceive(s_frame_q, &fr, 0) == pdTRUE && fr.found) {
-            const float dt_frame = last_frame_us < 0 ? 0.0f : (fr.t_us - last_frame_us) * 1e-6f;
+            float dt_frame = last_frame_us < 0 ? 0.0f : (fr.t_us - last_frame_us) * 1e-6f;
+            if (dt_frame > PID_MAX_DT_S) dt_frame = PID_MAX_DT_S;
             last_frame_us = fr.t_us;
             last_dx = fr.cx - FRAME_CX;
             pid_out = pid.update(last_dx, dt_frame);
@@ -152,6 +157,7 @@ extern "C" void app_main(void)
     ESP_ERROR_CHECK(imu_init());
     ESP_ERROR_CHECK(telemetry_init());
     ESP_ERROR_CHECK(servo_init());
+    ESP_ERROR_CHECK(distance_start());
     imu_calibrate();
 
     s_frame_q = xQueueCreate(1, sizeof(FrameResult));
