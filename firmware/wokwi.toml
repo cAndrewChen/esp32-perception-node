@@ -5,3 +5,5 @@ version = 1
 firmware = 'build/flasher_args.json'
 elf = 'build/hello_world.elf'
 gdbServerPort = 3333
+# Lets a host program read the simulated serial port: pyserial URL rfc2217://localhost:4000
+rfc2217ServerPort = 4000

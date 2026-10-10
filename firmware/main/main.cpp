@@ -8,6 +8,7 @@
 #include "freertos/task.h"
 #include "distance.h"
 #include "imu.h"
+#include "packet.h"
 #include "peripherals.h"
 #include "pid.h"
 #include "vision.h"
@@ -35,6 +36,14 @@ static std::atomic<float> s_servo_deg{0.0f};
 static ImuState s_imu_shared;
 static portMUX_TYPE s_imu_mux = portMUX_INITIALIZER_UNLOCKED;
 static uint16_t s_frame[FRAME_W * FRAME_H];
+
+// Latest object offset from the crosshair, published by the perception task for telemetry.
+struct ObjectOffset {
+    bool found;
+    float x_px, y_px;
+};
+static ObjectOffset s_obj_shared;
+static portMUX_TYPE s_obj_mux = portMUX_INITIALIZER_UNLOCKED;
 
 static ImuState read_imu()
 {
@@ -80,6 +89,9 @@ static void perception_task(void *)
         FrameResult fr = vision_find(s_frame);
         fr.t_us = now;
         xQueueOverwrite(s_frame_q, &fr);
+        portENTER_CRITICAL(&s_obj_mux);
+        s_obj_shared = {fr.found, fr.cx - FRAME_CX, fr.cy - FRAME_CY};
+        portEXIT_CRITICAL(&s_obj_mux);
         const int64_t render_us = render_done - now;
         const int64_t frame_us = esp_timer_get_time() - now;
 
@@ -151,11 +163,48 @@ static void control_task(void *)
     }
 }
 
+// Telemetry task: one packet per control tick, gathering the latest value from every other task.
+static void telemetry_task(void *)
+{
+    uint8_t buf[PACKET_LEN];
+    uint32_t sent = 0;
+    TickType_t last = xTaskGetTickCount();
+    while (true) {
+        const ImuState imu = read_imu();
+        const DistanceReading dist = distance_get();
+        ObjectOffset obj;
+        portENTER_CRITICAL(&s_obj_mux);
+        obj = s_obj_shared;
+        portEXIT_CRITICAL(&s_obj_mux);
+
+        TelemetrySample s = {};
+        s.t_ms = (uint32_t)(esp_timer_get_time() / 1000);
+        s.obj_found = obj.found;
+        s.obj_x_px = obj.x_px;
+        s.obj_y_px = obj.y_px;
+        s.dist_valid = dist.has_value;
+        s.dist_fresh = dist.fresh;
+        s.dist_cm = dist.cm;
+        s.pitch_deg = imu.pitch_deg;
+        s.roll_deg = imu.roll_deg;
+        s.yaw_deg = imu.yaw_deg;
+        s.servo_deg = s_servo_deg.load();
+
+        packet_pack(s, buf);
+        telemetry_write(buf, PACKET_LEN);
+        if (++sent % 250 == 0) {  // every 5 s
+            ESP_LOGI(TAG, "telemetry: %u packets sent", (unsigned)sent);
+        }
+        vTaskDelayUntil(&last, pdMS_TO_TICKS(CONTROL_PERIOD_MS));
+    }
+}
+
 extern "C" void app_main(void)
 {
     ESP_ERROR_CHECK(i2c_init());
     ESP_ERROR_CHECK(imu_init());
     ESP_ERROR_CHECK(telemetry_init());
+    if (TELEMETRY_ON_CONSOLE) esp_log_level_set("*", ESP_LOG_NONE);  // keep text out of the packet stream
     ESP_ERROR_CHECK(servo_init());
     ESP_ERROR_CHECK(distance_start());
     imu_calibrate();
@@ -165,4 +214,9 @@ extern "C" void app_main(void)
     xTaskCreate(imu_task, "imu", 4096, nullptr, 5, nullptr);
     xTaskCreate(perception_task, "perception", 4096, nullptr, 4, nullptr);
     xTaskCreate(control_task, "control", 4096, nullptr, 6, nullptr);
+    xTaskCreate(telemetry_task, "telemetry", 4096, nullptr, 3, nullptr);
+
+    const uint8_t check[] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+    ESP_LOGI(TAG, "crc16 self-test: 0x%04X (expect 0x29B1), packet %u bytes", crc16_ccitt(check, sizeof(check)),
+             (unsigned)PACKET_LEN);
 }

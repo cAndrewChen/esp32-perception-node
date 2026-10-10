@@ -50,10 +50,15 @@ esp_err_t imu_init()
 
 // ---------- UART telemetry ----------
 
-static constexpr uart_port_t TELEMETRY_UART = UART_NUM_1;
+static constexpr uart_port_t TELEMETRY_UART = TELEMETRY_ON_CONSOLE ? UART_NUM_0 : UART_NUM_1;
 
 esp_err_t telemetry_init()
 {
+    if (TELEMETRY_ON_CONSOLE) {
+        // The console already configured UART0 (115200 8N1). Only add a driver so we can write raw bytes;
+        // printf would translate newlines and corrupt binary data.
+        return uart_driver_install(TELEMETRY_UART, 256, 512, 0, nullptr, 0);
+    }
     uart_config_t cfg = {};
     cfg.baud_rate = TELEMETRY_BAUD;
     cfg.data_bits = UART_DATA_8_BITS;

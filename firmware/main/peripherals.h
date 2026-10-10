@@ -20,7 +20,10 @@ esp_err_t i2c_init();
 esp_err_t imu_init();                          // wakes the MPU6050
 esp_err_t imu_read_reg(uint8_t reg, uint8_t *buf, size_t len);
 
-// UART telemetry (UART1, not the UART0 console)
+// UART telemetry. false: UART1 on GPIO 17/18 (hardware layout; nothing in Wokwi reads it).
+// true: the packets go out of UART0, the console UART, which Wokwi can forward to the host over
+// RFC2217 (see wokwi.toml). Log text is switched off then, so only packets are on the line.
+constexpr bool TELEMETRY_ON_CONSOLE = true;
 constexpr int TELEMETRY_BAUD = 115200;
 esp_err_t telemetry_init();
 int telemetry_write(const uint8_t *data, size_t len);
